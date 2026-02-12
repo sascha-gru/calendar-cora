@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, Fragment, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { set, useForm } from 'react-hook-form';
 import { Transition, Dialog, TransitionChild, DialogPanel, DialogTitle } from '@headlessui/react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -9,7 +9,7 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import listPlugin from '@fullcalendar/list';
 import interactionPlugin, { DropArg } from '@fullcalendar/interaction';
 import { CheckIcon } from '@heroicons/react/20/solid'
-import { X, Briefcase, PencilIcon } from 'lucide-react';
+import { X, Briefcase, PencilIcon, PointerIcon, CalendarIcon } from 'lucide-react';
 import { EventClickArg } from '@fullcalendar/core';
 import momentTimezonePlugin from '@fullcalendar/moment-timezone';
 import deLocale from '@fullcalendar/core/locales/de'; 
@@ -35,6 +35,7 @@ export default function CalendarView() {
     const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
     const [allEvents, setAllEvents] = useState<Event[]>([]);
     const [modalType, setModalType] = useState<'create' | 'info' | 'delete' | 'edit' | null>(null);
+    const [previousModalType, setPreviousModalType] = useState<'info' | 'edit' | null>(null);
     const [idToDelete, setIdToDelete] = useState<string | null>(null);
     const [newEvent, setNewEvent] = useState<Event>({
         id: '0',
@@ -74,19 +75,34 @@ export default function CalendarView() {
         const startDate = arg.date;
         const endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // 30 Minuten später
         // allDay immer auf false setzen, damit der Benutzer es manuell aktivieren kann
-        setNewEvent({ ...newEvent, start: startDate, end: endDate, allDay: false, id: new Date().getTime().toString() })
+        setNewEvent({
+            id: new Date().getTime().toString(),
+            title: '',
+            description: '',
+            start: startDate,
+            end: endDate,
+            allDay: false
+        })
         setModalType('create')
     }
 
     function handleShowInfo(data: EventClickArg) {
+        let endDate = data.event.end ?? data.event.start ?? new Date();
+        // Bei ganztägigen Events: Enddatum -1 Tag für Anzeige (FullCalendar speichert exklusiv)
+        if (data.event.allDay && data.event.end) {
+            const adjustedEnd = new Date(data.event.end);
+            adjustedEnd.setDate(adjustedEnd.getDate() - 1);
+            endDate = adjustedEnd;
+        }
         setNewEvent({
             id: data.event.id,
             title: data.event.title,
             description: data.event.extendedProps.description || '',
             start: data.event.start ?? new Date(),
-            end: data.event.end ?? new Date(),
+            end: endDate,
             allDay: data.event.allDay
         });
+        setIdToDelete(data.event.id);
         setModalType('info');
     }
 
@@ -96,8 +112,24 @@ export default function CalendarView() {
         const event = {...newEvent, start: startDate, end: endDate, title: data.draggedEl.innerText, allDay: data.allDay, id: new Date().getTime().toString() }
         setAllEvents([...allEvents, event])
     }
-    
-    function handleDeleteModal(data: {event: {id: string}}) {
+
+    function handleEventDrop(info: { event: { id: string; start: Date | null; end: Date | null; allDay: boolean } }) {
+        setAllEvents(allEvents.map(event => {
+            if (event.id !== info.event.id) return event;
+
+            const newStart = info.event.start ?? new Date();
+            // Berechne die ursprüngliche Dauer und wende sie auf das neue Startdatum an
+            const oldStart = new Date(event.start);
+            const oldEnd = new Date(event.end);
+            const duration = oldEnd.getTime() - oldStart.getTime();
+            const newEnd = new Date(newStart.getTime() + duration);
+
+            return { ...event, start: newStart, end: newEnd, allDay: info.event.allDay };
+        }))
+    }
+
+    function handleDeleteModal(data: {event: {id: string}}, fromModal: 'info' | 'edit') {
+        setPreviousModalType(fromModal);
         setModalType('delete');
         setIdToDelete(data.event.id);
     }
@@ -146,35 +178,40 @@ export default function CalendarView() {
         })
     }
 
+    // Bei ganztägigen Events: Enddatum +1 Tag für FullCalendar (exklusives Enddatum)
+    function adjustEndDateForAllDay(event: Event): Event {
+        if (event.allDay && event.end) {
+            const adjustedEnd = new Date(event.end);
+            adjustedEnd.setDate(adjustedEnd.getDate() + 1);
+            return { ...event, end: adjustedEnd };
+        }
+        return event;
+    }
+
     function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
         e.preventDefault()
-        setAllEvents([...allEvents, newEvent])
+        const eventToSave = adjustEndDateForAllDay(newEvent);
+        setAllEvents([...allEvents, eventToSave])
         setModalType(null)
         setNewEvent({
-        id: '0',
-        title: '',
-        description: '',
-        start: '',
-        end: '',
-        allDay: false,
+            id: '0',
+            title: '',
+            description: '',
+            start: '',
+            end: '',
+            allDay: false,
         })
     }
 
     function handleUpdate(e: React.SubmitEvent<HTMLFormElement>) {
         e.preventDefault()
-        setAllEvents(allEvents.map(event => 
-            event.id === newEvent.id ? newEvent : event
+        const eventToSave = adjustEndDateForAllDay(newEvent);
+        setAllEvents(allEvents.map(event =>
+            event.id === newEvent.id ? eventToSave : event
         ))
-        setModalType(null)
-        setNewEvent({
-        id: '0',
-        title: '',
-        description: '',
-        start: '',
-        end: '',
-        allDay: false,
-        })
-        }
+        setOriginalEvent(newEvent)
+        setModalType('info')
+    }
 
     function handleUpdateEvent(data: EventClickArg) {
         // Formular mit den Daten des angeklickten Termins füllen
@@ -241,7 +278,8 @@ export default function CalendarView() {
                         selectMirror={true}
                         dateClick={handleDateClick}
                         drop={(data) => addEvent(data)}
-                        eventClick={handleUpdateEvent}
+                        eventClick={handleShowInfo}
+                        eventDrop={handleEventDrop}
                         eventTimeFormat={{
                             hour: '2-digit',
                             minute: '2-digit',
@@ -319,7 +357,21 @@ export default function CalendarView() {
                                 );
                             }
 
-                            // Ganztägige Events
+                            // Ganztägige Events (Monatsansicht)
+                            if (view === 'dayGridMonth' && event.allDay) {
+                                return (
+                                    <div className="fc-event-main-frame" style={{
+                                        backgroundColor: '#3788d8',
+                                        color: 'white',
+                                        borderRadius: '4px',
+                                        padding: '2px 4px',
+                                    }}>
+                                        <span className="font-bold">{event.title}</span>
+                                    </div>
+                                );
+                            }
+
+                            // Ganztägige Events (andere Ansichten)
                             return (
                                 <div className="fc-event-main-frame">
                                     <div className="fc-event-title-container">
@@ -332,15 +384,15 @@ export default function CalendarView() {
                 </div>
             </div>
 
-            {/* Modalkompenente Termin dynamisch: Erstellen, bearbeiten, Info zeigen, löschen */}
+            {/* Modalkompenente Termin zum Erstellen, Bearbeiten, Info zeigen, löschen */}
             <Modal isOpen={modalType !== null} onClose={handleCloseModal} title={
                     modalType === 'create' ? 'Neuen Termin erstellen' :
                     modalType === 'info' ? 'Details' :
                     modalType === 'edit' ? 'Termin bearbeiten' :
                     modalType === 'delete' ? 'Termin löschen' : ''
-                } size='lg'>
+                } size={modalType === 'info' || modalType === 'delete' ? 'md' : 'lg'}>
                 
-                {/* Erstellen/Bearbeiten Modal */}
+                {/* Modal zum Erstellen und Bearbeiten */}
                 {(modalType === 'create' || modalType === 'edit') && (
                     <div className="w-full rounded-lg bg-white px-6 py-8 shadow-md ring-1 ring-gray-900/5 sm:px-10">
                         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
@@ -349,11 +401,12 @@ export default function CalendarView() {
 
                         {/* X-Symbol zum Löschen oben rechts im Bearbeiten-Modal */}
                         {modalType === 'edit' && (
-                            <button className="absolute top-20 right-10 text-gray-500 hover:text-gray-800" onClick={() => handleDeleteModal({event: {id: idToDelete ?? ''}})}>
-                                <X className="h-6 w-5 cursor-pointer" aria-hidden="true"/>
+                            <button className="absolute top-24 right-12 text-gray-500 hover:text-gray-800" onClick={() => handleDeleteModal({event: {id: idToDelete ?? ''}}, 'edit')}>
+                                <X className="h-6 w-6 cursor-pointer" aria-hidden="true"/>
                             </button>
                         )}
 
+                        {/* Titel des Modals Erstellen oder Bearbeiten */}
                         <h2 className="text-xl text-center font-semibold mt-4">{modalType === 'create' ? 'Neuen Termin erstellen' : 'Termin bearbeiten'}</h2>
                         <form className="mt-8 space-y-6" onSubmit={(e) => modalType === 'create' ? handleSubmit(e) : handleUpdate(e)}>
                             <div>
@@ -373,7 +426,7 @@ export default function CalendarView() {
                             {/* Datum und Zeit Eingabe: Startdatum */}
                             <div className="grid grid-cols-2 gap-4 mt-4">
                                 <div>
-                                    <Label htmlFor='starttime'>Startdatum/-zeit</Label>
+                                    <Label htmlFor='starttime'>{newEvent.allDay ? 'Startdatum' : 'Startdatum/-zeit'}</Label>
                                     <div className="flex items-center gap-1">
                                         <Input type="date" id="startdate" className="cursor-pointer"
                                         value={newEvent.start ? formatToLocalDate(newEvent.start) : ''}
@@ -381,17 +434,19 @@ export default function CalendarView() {
                                         onChange={(e) => setNewEvent({...newEvent, start: 
                                         combineDateAndTime(newEvent.start, e.target.value, undefined)})} />
 
-                                        <Input type="time" id="starttime" className="cursor-pointer"
+                                        <Input type="time" id="starttime"
+                                        className={newEvent.allDay ? "bg-gray-100 cursor-not-allowed" : "cursor-pointer"}
+                                        disabled={newEvent.allDay}
                                         value={newEvent.start ? formatToLocalTime(newEvent.start) : ''}
-                                        onClick={(e) => e.currentTarget.showPicker()}
-                                        onChange={(e) => setNewEvent({...newEvent, start: 
+                                        onClick={(e) => !newEvent.allDay && e.currentTarget.showPicker()}
+                                        onChange={(e) => setNewEvent({...newEvent, start:
                                         combineDateAndTime(newEvent.start, undefined, e.target.value)})} />
                                     </div>
                                 </div>
 
                                 {/* Enddatum */}
                                 <div>
-                                    <Label htmlFor='endtime'>Enddatum/-zeit</Label>
+                                    <Label htmlFor='endtime'>{newEvent.allDay ? 'Enddatum' : 'Enddatum/-zeit'}</Label>
                                     <div className="flex items-center gap-1">
                                         <Input type="date" id="enddate" className="cursor-pointer"
                                         value={newEvent.end ? formatToLocalDate(newEvent.end) : ''}
@@ -399,10 +454,12 @@ export default function CalendarView() {
                                         onChange={(e) => setNewEvent({...newEvent, end: 
                                         combineDateAndTime(newEvent.end, e.target.value, undefined)})} />
 
-                                        <Input type="time" id="endtime" className="cursor-pointer"
+                                        <Input type="time" id="endtime"
+                                        className={newEvent.allDay ? "bg-gray-100 cursor-not-allowed" : "cursor-pointer"}
+                                        disabled={newEvent.allDay}
                                         value={newEvent.end ? formatToLocalTime(newEvent.end) : ''}
-                                        onClick={(e) => e.currentTarget.showPicker()}
-                                        onChange={(e) => setNewEvent({...newEvent, end: 
+                                        onClick={(e) => !newEvent.allDay && e.currentTarget.showPicker()}
+                                        onChange={(e) => setNewEvent({...newEvent, end:
                                         combineDateAndTime(newEvent.end, undefined, e.target.value)})} />
                                     </div>
                                 </div>
@@ -412,7 +469,7 @@ export default function CalendarView() {
                             <div className="mt-5">
                                 <Label htmlFor='description'>Beschreibung (optional)</Label>
                                     <textarea 
-                                    id="description" className="block w-full sm:leading-3 rounded-lg border border-gray-200 p-3 mt-1" 
+                                    id="description" className="block w-full leading-relaxed rounded-lg border border-gray-200 px-3 py-4 mt-1 text-sm" 
                                     {...register('description')}
                                     value={newEvent.description} onChange={handleDescriptionChange} 
                                     placeholder="Fügen Sie eine Beschreibung hinzu" />
@@ -440,13 +497,79 @@ export default function CalendarView() {
                                 <Button
                                     type="button"
                                     className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:col-start-1 sm:mt-0 cursor-pointer"
-                                    onClick={handleCloseModal}
+                                    onClick={() => modalType === 'create' ? handleCloseModal() : setModalType('info')}
                                 >
                                     Abbrechen
                                 </Button>
                             </div>
                     </form>
                 </div>
+                )}
+
+                {/* Modal zum Anzeigen von Termindetails */}
+                {modalType === 'info' && (
+                    <div className="w-full rounded-lg bg-white px-6 py-8 shadow-md ring-1 ring-gray-900/5 sm:px-10">
+                            <button className="absolute top-24 right-12 text-gray-500 hover:text-gray-800" onClick={() => handleDeleteModal({event: {id: newEvent.id}}, 'info')}>
+                                <X className="h-6 w-6 cursor-pointer" aria-hidden="true"/>
+                            </button>
+
+                        <div className="flex items-center justify-center gap-4 mt-8">
+                            <CalendarIcon className="h-6 w-6 text-blue-600" aria-hidden="true" />
+                            <h2 className="text-center text-2xl text-gray-900">{newEvent.title}</h2>
+                        </div>
+
+                            {newEvent.allDay ? (
+                                <div className="text-center mt-6">
+                                    <Label className="text-md text-gray-700">Ganztägig</Label>
+                                    <p className="mt-1 text-gray-700">
+                                        {(() => {
+                                            const startStr = new Date(newEvent.start).toLocaleDateString('de-DE', { dateStyle: 'short' });
+                                            const endStr = new Date(newEvent.end).toLocaleDateString('de-DE', { dateStyle: 'short' });
+                                            return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
+                                        })()}
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-4 mt-6">
+                                    <div className="text-center">
+                                        <Label className="text-md text-gray-700">Startdatum/-zeit</Label>
+                                        <p className="mt-1 text-gray-700">{newEvent.start ? new Date(newEvent.start).toLocaleString('de-DE',
+                                            { dateStyle: 'short', timeStyle: 'short' }).replace(',', ' -') : ''}</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <Label className="text-md text-gray-700">Enddatum/-zeit</Label>
+                                        <p className="mt-1 text-gray-700">{newEvent.end ? new Date(newEvent.end).toLocaleString('de-DE',
+                                            { dateStyle: 'short', timeStyle: 'short' }).replace(',', ' -') : ''}</p>
+                                    </div>
+                                </div>
+                            )}
+                            {newEvent.description && (
+                                <>
+                                    <p className="text-center text-md text-gray-700 font-semibold mt-8">Beschreibung:</p>
+                                    <p className="mt-2 text-center text-sm text-gray-700 whitespace-pre-wrap">{newEvent.description}</p>
+                                </>
+                            )}
+
+                        <div className="mt-10 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
+                            <Button
+                                type='button'
+                                className="inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 sm:col-start-2 cursor-pointer"
+                                onClick={() => {
+                                    setOriginalEvent(newEvent);
+                                    setModalType('edit');
+                                }}
+                            >
+                                Termin bearbeiten
+                            </Button>
+                            <Button
+                            type='button'
+                            className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:col-start-1 sm:mt-0 cursor-pointer"
+                            onClick={handleCloseModal}
+                            >
+                                Schließen
+                            </Button>
+                        </div>
+                    </div>
                 )}
 
                 {/* Löschen Modal */}
@@ -470,7 +593,7 @@ export default function CalendarView() {
                             <Button
                                 type='button'
                                 className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:col-start-1 sm:mt-0 cursor-pointer"
-                                onClick={handleCloseModal}
+                                onClick={() => setModalType(previousModalType)}
                             >
                                 Abbrechen
                             </Button>
