@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, ReactNode, useEffect } from 'react';
+import { Transition, TransitionChild } from '@headlessui/react';
 import { cn } from '../../app/lib/utils';
 
 export interface ModalProps {
@@ -42,8 +43,6 @@ export function Modal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   const sizeClasses = {
     sm: 'max-w-md',
     md: 'max-w-lg',
@@ -52,55 +51,68 @@ export function Modal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-full items-center justify-center p-4 text-center">
-        {/* Overlay */}
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-          onClick={closeOnOverlayClick ? onClose : undefined}
-          aria-hidden="true"
-        />
+    <Transition show={isOpen} as={Fragment}>
+      <div className="fixed inset-0 z-50 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4 text-center">
+          {/* Overlay mit Fade-Animation */}
+          <TransitionChild
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div
+              className="fixed inset-0 bg-black bg-opacity-50"
+              onClick={closeOnOverlayClick ? onClose : undefined}
+              aria-hidden="true"
+            />
+          </TransitionChild>
 
-        {/* Modal */}
-        <div
-          className={cn(
-            'relative transform overflow-hidden rounded-xl bg-surface text-left shadow-xl transition-all',
-            'w-full',
-            sizeClasses[size]
-          )}
-        >
-          {/* Header */}
-          {(title || showCloseButton) && (
-            <div className="flex items-start justify-between p-6 pb-4">
-              <div>
-                {title && (
-                  <h3 className="text-lg font-semibold text-content">
-                    {title}
-                  </h3>
-                )}
-                {description && (
-                  <p className="mt-1 text-sm text-content-secondary">
-                    {description}
-                  </p>
-                )}
-              </div>
-              {/* {showCloseButton && (
-                <button
-                  onClick={onClose}
-                  className="ml-4 rounded-lg p-1 text-content-tertiary hover:bg-secondary-100 hover:text-content-secondary transition-colors"
-                  aria-label="Close modal"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              )} */}
+          {/* Modal mit Scale- und Fade-Animation */}
+          <TransitionChild
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0 scale-95"
+            enterTo="opacity-100 scale-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100 scale-100"
+            leaveTo="opacity-0 scale-95"
+          >
+            <div
+              className={cn(
+                'relative transform overflow-hidden rounded-xl bg-surface text-left shadow-xl',
+                'w-full transition-[max-width] duration-100 ease-out',
+                sizeClasses[size]
+              )}
+            >
+              {/* Header */}
+              {(title || showCloseButton) && (
+                <div className="flex items-start justify-between p-6 pb-4">
+                  <div>
+                    {title && (
+                      <h3 className="text-lg font-semibold text-content">
+                        {title}
+                      </h3>
+                    )}
+                    {description && (
+                      <p className="mt-1 text-sm text-content-secondary">
+                        {description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Content */}
+              <div className="px-6 pb-6">{children}</div>
             </div>
-          )}
-
-          {/* Content */}
-          <div className="px-6 pb-6">{children}</div>
+          </TransitionChild>
         </div>
       </div>
-    </div>
+    </Transition>
   );
 }
 

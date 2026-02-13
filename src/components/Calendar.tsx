@@ -2,21 +2,19 @@
 
 import { useState, Fragment, useRef } from 'react';
 import { set, useForm } from 'react-hook-form';
-import { Transition, Dialog, TransitionChild, DialogPanel, DialogTitle } from '@headlessui/react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import listPlugin from '@fullcalendar/list';
 import interactionPlugin, { DropArg } from '@fullcalendar/interaction';
 import { CheckIcon } from '@heroicons/react/20/solid'
-import { X, Briefcase, PencilIcon, PointerIcon, CalendarIcon } from 'lucide-react';
+import { X, PencilIcon, CalendarIcon } from 'lucide-react';
 import { EventClickArg } from '@fullcalendar/core';
 import momentTimezonePlugin from '@fullcalendar/moment-timezone';
 import deLocale from '@fullcalendar/core/locales/de'; 
 import multiMonthPlugin from '@fullcalendar/multimonth'
 import { Modal } from './Modal/modal';
 import { Button } from './Button/button';
-import { register } from 'module';
 import { Input } from './Input/input';
 import { Label } from './Label/label';
 
@@ -513,9 +511,9 @@ export default function CalendarView() {
                                 <X className="h-6 w-6 cursor-pointer" aria-hidden="true"/>
                             </button>
 
-                        <div className="flex items-center justify-center gap-4 mt-8">
-                            <CalendarIcon className="h-6 w-6 text-blue-600" aria-hidden="true" />
-                            <h2 className="text-center text-2xl text-gray-900">{newEvent.title}</h2>
+                        <div className="flex items-start justify-center gap-4 mt-8">
+                            <CalendarIcon className="h-6 w-6 text-blue-600 mt-1" aria-hidden="true" />
+                            <h2 className="text-2xl text-gray-900">{newEvent.title}</h2>
                         </div>
 
                             {newEvent.allDay ? (
